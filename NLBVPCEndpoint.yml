@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "NLBVPCEndpoint Template."
+
+Parameters:
+  # ------------------------------------------------------------#
+  # Common
+  # ------------------------------------------------------------#
+  Prefix:
+    Type: String
+    Default: "nlb-vpcendpoint"
+
+Resources:
+  # ------------------------------------------------------------#
+  #  VPC Endpoint
+  # ------------------------------------------------------------#
+  NLBVPCEndpointService: 
+    Type: "AWS::EC2::VPCEndpointService"
+    Properties: 
+      AcceptanceRequired: true
+      NetworkLoadBalancerArns: 
+        - !ImportValue NLB
+  
+  NLBVPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${Prefix}-nlb-vpc-endpoint-sg
+      GroupName: !Sub ${Prefix}-nlb-vpc-endpoint-sg
+      VpcId: !ImportValue VpcA
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !ImportValue EC2SecurityGroup-VpcA
+      Tags:
+        - Key: Name
+          Value: !Sub ${Prefix}-nlb-vpc-endpoint-sg
+
+  NLBVPCEndpoint:
+    DependsOn:
+      - NLBVPCEndpointService
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: false
+      ServiceName: !Sub com.amazonaws.vpce.${AWS::Region}.${NLBVPCEndpointService}
+      VpcId: !ImportValue VpcA
+      SubnetIds:
+        - !ImportValue PrivateSubnet-VpcA
+      SecurityGroupIds:
+        - !Ref NLBVPCEndpointSecurityGroup

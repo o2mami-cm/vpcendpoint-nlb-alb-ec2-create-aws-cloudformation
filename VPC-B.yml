@@ -1,0 +1,303 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "VPC-B Template."
+
+Parameters:
+  # ------------------------------------------------------------#
+  # Common
+  # ------------------------------------------------------------#
+  Prefix:
+    Type: String
+    Default: "vpc-b"
+
+  # ------------------------------------------------------------#
+  # Network
+  # ------------------------------------------------------------#
+  VpcCidr:
+    Type: String
+    Default: "10.1.0.0/16"
+
+  PrivateSubnetCidrA:
+    Type: String
+    Default: "10.1.0.0/24"
+  
+  PrivateSubnetCidrC:
+    Type: String
+    Default: "10.1.2.0/24"
+
+  # ------------------------------------------------------------#
+  # EC2
+  # ------------------------------------------------------------#
+  EC2InstanceName:
+    Type: String
+    Default: "ec2"
+  EC2InstanceAMI:
+    Type: AWS::EC2::Image::Id
+    Default: "ami-078296f82eb463377" # Amazon Linux 2 AMI (HVM) - Kernel 5.10, SSD Volume Type
+  EC2InstanceInstanceType:
+    Type: String
+    Default: "t3.nano"
+  EC2InstanceVolumeType:
+    Type: String
+    Default: "gp2"
+  EC2InstanceVolumeSize:
+    Type: String
+    Default: "8"
+
+Resources:
+  # ------------------------------------------------------------#
+  #  Network
+  # ------------------------------------------------------------#
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Prefix}-vpc
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref PrivateSubnetCidrA
+      VpcId: !Ref Vpc
+      AvailabilityZone:
+        Fn::Select:
+          - "0"
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub ${Prefix}-private-subnet-a
+
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref PrivateSubnetCidrC
+      VpcId: !Ref Vpc
+      AvailabilityZone:
+        Fn::Select:
+          - "1"
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub ${Prefix}-private-subnet-c
+
+  PrivateRouteTable: 
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref Vpc 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-table"
+  
+  PrivateSubnetTableAssociationA: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetTableAssociationC: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTable
+
+  EC2SecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+      GroupName: !Sub "${Prefix}-ec2-sg"
+      GroupDescription: "-"
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${Prefix}-ec2-sg"
+
+  ALBSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+      GroupName: !Sub "${Prefix}-alb-sg"
+      GroupDescription: "-"
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${Prefix}-alb-sg"
+
+  # ------------------------------------------------------------#
+  #  VPC Endpoint
+  # ------------------------------------------------------------#
+  S3VPCEndpoint:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      RouteTableIds: 
+        - !Ref PrivateRouteTable
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      VpcId: !Ref Vpc 
+
+  # ------------------------------------------------------------#
+  #  EC2Instance
+  # ------------------------------------------------------------#
+  EC2Instance1:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${Prefix}-${EC2InstanceName}"
+      ImageId: !Ref EC2InstanceAMI
+      InstanceType: !Ref EC2InstanceInstanceType
+      DisableApiTermination: false
+      EbsOptimized: false
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            VolumeType: !Ref EC2InstanceVolumeType
+            VolumeSize: !Ref EC2InstanceVolumeSize
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      SubnetId: !Ref PrivateSubnetA
+      UserData: !Base64 |
+        #! /bin/bash
+        sudo yum update -y
+        sudo yum -y install httpd
+        sudo systemctl start httpd
+        sudo systemctl enable httpd
+        sudo echo "Hello World" >> /var/www/html/index.html
+ 
+  EC2Instance2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${Prefix}-${EC2InstanceName}"
+      ImageId: !Ref EC2InstanceAMI
+      InstanceType: !Ref EC2InstanceInstanceType
+      DisableApiTermination: false
+      EbsOptimized: false
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            VolumeType: !Ref EC2InstanceVolumeType
+            VolumeSize: !Ref EC2InstanceVolumeSize
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      SubnetId: !Ref PrivateSubnetC
+      UserData: !Base64 |
+        #! /bin/bash
+        sudo yum update -y
+        sudo yum -y install httpd
+        sudo systemctl start httpd
+        sudo systemctl enable httpd
+        sudo echo "Hello World" >> /var/www/html/index.html
+
+  # ------------------------------------------------------------#
+  #  ALB
+  # ------------------------------------------------------------#  
+  ALBTargetGroup: 
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      VpcId: !Ref Vpc
+      Name: !Sub "${Prefix}-alb-tg"
+      Protocol: HTTP
+      Port: 80
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-alb-tg"
+      Targets: 
+        - Id: !Ref EC2Instance1
+          Port: 80
+        - Id: !Ref EC2Instance2
+          Port: 80
+   
+  ALB: 
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      IpAddressType: ipv4
+      Name: !Sub "${Prefix}-alb"
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-alb"
+      Scheme: "internal"
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets: 
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetC
+      Type: application
+
+  ALBListener: 
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties: 
+      DefaultActions: 
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  # ------------------------------------------------------------#
+  #  NLB
+  # ------------------------------------------------------------#  
+  NLBTargetGroup: 
+    DependsOn:
+      - ALBListener
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      VpcId: !Ref Vpc
+      Name: !Sub "${Prefix}-nlb-tg"
+      Protocol: TCP
+      Port: 80
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-nlb-tg"
+      Targets: 
+        - Id: !Ref ALB
+          Port: 80
+      TargetType: alb
+   
+  NLB: 
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      Name: !Sub "${Prefix}-nlb"
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-nlb"
+      Scheme: "internal"
+      LoadBalancerAttributes: 
+        - Key: "deletion_protection.enabled"
+          Value: false
+      Subnets: 
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetC
+      Type: network
+
+  NLBListener: 
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties: 
+      DefaultActions: 
+        - TargetGroupArn: !Ref NLBTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref NLB
+      Port: 80
+      Protocol: TCP
+
+# ------------------------------------------------------------#
+# Output Parameters
+# ------------------------------------------------------------#   
+Outputs:
+  NLB:
+    Value: !Ref NLB
+    Export:
+      Name: NLB
